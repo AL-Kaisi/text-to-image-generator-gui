@@ -1,0 +1,88 @@
+/* Main Layout Styles */
+body {
+    display: flex;
+    min-height: 100vh;
+    flex-direction: column;
+}
+
+main {
+    flex: 1 0 auto;
+    padding-top: 20px;
+    padding-bottom: 40px;
+}
+
+/* Card and Form Styles */
+.card {
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.card-panel {
+    border-radius: 8px;
+}
+
+.input-field input:focus + label,
+.input-field textarea:focus + label {
+    color: #26a69a !important;
+}
+
+.input-field input:focus,
+.input-field textarea:focus {
+    border-bottom: 1px solid #26a69a !important;
+    box-shadow: 0 1px 0 0 #26a69a !important;
+}
+
+/* Generated Image Container */
+#result-container img {
+    max-width: 100%;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+}
+
+/* Loading Spinner */
+#loading-spinner {
+    padding: 40px 0;
+}
+
+/* Error Message */
+#error-message {
+    padding: 20px;
+}
+
+/* Initial Message */
+#initial-message {
+    padding: 40px 0;
+}
+
+/* Advanced Settings Panel */
+#advanced-settings {
+    margin-top: 20px;
+    padding-top: 10px;
+    border-top: 1px solid #ddd;
+}
+
+/* Footer Fixes */
+.page-footer {
+    margin-top: 40px;
+}
+
+/* Responsiveness */
+@media only screen and (max-width: 992px) {
+    .row .col.m5,
+    .row .col.m7 {
+        width: 100%;
+        margin-left: auto;
+        left: auto;
+        right: auto;
+    }
+}
+
+/* Better spacing for form elements */
+.range-field {
+    margin: 30px 0;
+}
+
+/* Make sure textareas have enough room */
+textarea.materialize-textarea {
+    min-height: 8rem;
+}

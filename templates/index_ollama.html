@@ -1,0 +1,513 @@
+{% extends "base.html" %}
+
+{% block title %}Text to Image Generator (Ollama){% endblock %}
+
+{% block extra_css %}
+<style>
+    .model-card {
+        margin-bottom: 10px;
+        cursor: pointer;
+        transition: background-color 0.3s;
+    }
+    
+    .model-card:hover {
+        background-color: #f5f5f5;
+    }
+    
+    .model-card.selected {
+        background-color: rgba(38, 166, 154, 0.1);
+        border-left: 3px solid #26a69a;
+    }
+    
+    .status-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 12px;
+        margin-left: 10px;
+    }
+    
+    .status-available {
+        background-color: #4CAF50;
+        color: white;
+    }
+    
+    .status-pulling {
+        background-color: #2196F3;
+        color: white;
+    }
+    
+    .status-failed {
+        background-color: #F44336;
+        color: white;
+    }
+    
+    .status-not-pulled {
+        background-color: #9E9E9E;
+        color: white;
+    }
+    
+    .progress-container {
+        margin-top: 20px;
+    }
+    
+    #fallback-image {
+        border: 2px dashed #f44336;
+        padding: 5px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col s12">
+        <div class="card-panel teal lighten-1 white-text center-align">
+            <h4><i class="material-icons left">image</i> Text to Image Generator</h4>
+            <p>Transform your text descriptions into images using Ollama models</p>
+            
+            {% if not ollama_running %}
+            <div class="card-panel red lighten-4 black-text" style="margin-top: 20px;">
+                <i class="material-icons left">warning</i>
+                <span>Ollama is not running. Please <a href="https://ollama.com" target="_blank">install Ollama</a> and start it to use this application.</span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Image Generation Form -->
+    <div class="col s12 m5">
+        <div class="card">
+            <div class="card-content">
+                <span class="card-title">Generate an Image</span>
+                
+                <form id="generate-form">
+                    <!-- Text Prompt -->
+                    <div class="input-field">
+                        <i class="material-icons prefix">text_fields</i>
+                        <textarea id="prompt" name="prompt" class="materialize-textarea" required></textarea>
+                        <label for="prompt">Enter your text description</label>
+                        <span class="helper-text">Example: "A flying bird in a blue sky with clouds"</span>
+                    </div>
+                    
+                    <!-- Model Selection -->
+                    <div class="input-field">
+                        <i class="material-icons prefix">auto_awesome</i>
+                        <select id="model" name="model">
+                            {% for model in available_models %}
+                                <option value="{{ model.name }}" 
+                                        {% if model.name == 'sdxl' %}selected{% endif %}
+                                        {% if model.status is defined and model.status != 'available' %}disabled{% endif %}>
+                                    {{ model.description }}
+                                    {% if model.status is defined and model.status != 'available' %}
+                                        ({{ model.status }})
+                                    {% endif %}
+                                </option>
+                            {% endfor %}
+                        </select>
+                        <label>Select AI Model</label>
+                    </div>
+                    
+                    <!-- Available Models -->
+                    <div class="collection">
+                        {% for model in available_models %}
+                            <div class="collection-item model-card" data-model="{{ model.name }}">
+                                <div>
+                                    {{ model.description }}
+                                    {% if model.status is defined %}
+                                        <span class="status-badge status-{{ model.status }}">{{ model.status }}</span>
+                                    {% else %}
+                                        <span class="status-badge status-available">available</span>
+                                    {% endif %}
+                                    
+                                    {% if model.status is defined and model.status == 'not_pulled' %}
+                                        <a href="#" class="pull-model-btn secondary-content" data-model="{{ model.name }}">
+                                            <i class="material-icons">cloud_download</i>
+                                        </a>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                    
+                    <!-- Image Size -->
+                    <div class="input-field">
+                        <i class="material-icons prefix">photo_size_select_large</i>
+                        <select id="size" name="size">
+                            <option value="512x512" selected>512×512</option>
+                            <option value="768x768">768×768</option>
+                            <option value="1024x1024">1024×1024</option>
+                            <option value="512x768">512×768 (Portrait)</option>
+                            <option value="768x512">768×512 (Landscape)</option>
+                        </select>
+                        <label>Image Size</label>
+                    </div>
+                    
+                    <!-- Generate Button -->
+                    <div class="row">
+                        <div class="col s12 center-align">
+                            <button type="submit" class="btn-large waves-effect waves-light teal" {% if not ollama_running %}disabled{% endif %}>
+                                <i class="material-icons left">auto_awesome</i>
+                                Generate Image
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Results Panel -->
+    <div class="col s12 m7">
+        <div class="card">
+            <div class="card-content">
+                <span class="card-title">Generated Image</span>
+                
+                <!-- Loading Spinner (hidden by default) -->
+                <div id="loading-spinner" class="center-align" style="display: none;">
+                    <div class="preloader-wrapper big active">
+                        <div class="spinner-layer spinner-teal-only">
+                            <div class="circle-clipper left">
+                                <div class="circle"></div>
+                            </div>
+                            <div class="gap-patch">
+                                <div class="circle"></div>
+                            </div>
+                            <div class="circle-clipper right">
+                                <div class="circle"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <p>Generating your image... This may take a moment.</p>
+                    <p class="grey-text">Generation time varies by model complexity and image size.</p>
+                </div>
+                
+                <!-- Error Message (hidden by default) -->
+                <div id="error-message" class="red-text center-align" style="display: none;">
+                    <i class="material-icons medium">error</i>
+                    <p id="error-text">An error occurred.</p>
+                    <div class="card-panel red lighten-4">
+                        <span id="error-details" class="black-text"></span>
+                    </div>
+                </div>
+                
+                <!-- Fallback Image (hidden by default) -->
+                <div id="fallback-container" class="center-align" style="display: none;">
+                    <p class="red-text">Error occurred, showing fallback image:</p>
+                    <img id="fallback-image" class="responsive-img z-depth-1" src="" alt="Fallback Image">
+                </div>
+                
+                <!-- Initial Message -->
+                <div id="initial-message" class="center-align grey-text">
+                    <i class="material-icons large">image</i>
+                    <p>Enter a text description and click "Generate Image" to create an image.</p>
+                    
+                    {% if not ollama_running %}
+                    <div class="card-panel yellow lighten-4">
+                        <p><i class="material-icons tiny">warning</i> Ollama is not running. Install it from <a href="https://ollama.com" target="_blank">ollama.com</a></p>
+                    </div>
+                    {% endif %}
+                </div>
+                
+                <!-- Generated Image (hidden by default) -->
+                <div id="result-container" class="center-align" style="display: none;">
+                    <img id="generated-image" class="responsive-img z-depth-1" src="" alt="Generated Image">
+                    
+                    <div class="row">
+                        <div class="col s12 center-align" style="margin-top: 20px;">
+                            <a id="download-button" href="#" class="btn waves-effect waves-light teal" download="generated-image.png">
+                                <i class="material-icons left">file_download</i>
+                                Download Image
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Model Pull Progress Modal -->
+<div id="pull-model-modal" class="modal">
+    <div class="modal-content">
+        <h4>Downloading Model</h4>
+        <p id="pull-model-message">Downloading model... This may take a while depending on your internet connection.</p>
+        
+        <div class="progress-container">
+            <div class="progress">
+                <div class="indeterminate"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize Materialize components
+        var selects = document.querySelectorAll('select');
+        M.FormSelect.init(selects);
+        
+        var modals = document.querySelectorAll('.modal');
+        M.Modal.init(modals);
+        
+        // Track model statuses
+        var modelStatuses = {};
+        {% for model in available_models %}
+            {% if model.status is defined %}
+                modelStatuses['{{ model.name }}'] = '{{ model.status }}';
+            {% else %}
+                modelStatuses['{{ model.name }}'] = 'available';
+            {% endif %}
+        {% endfor %}
+        
+        // Update selected model in collection
+        function updateSelectedModel() {
+            var selectedModel = document.getElementById('model').value;
+            document.querySelectorAll('.model-card').forEach(function(card) {
+                card.classList.remove('selected');
+                if (card.dataset.model === selectedModel) {
+                    card.classList.add('selected');
+                }
+            });
+        }
+        
+        // Initialize selected model
+        updateSelectedModel();
+        
+        // Model card click handler
+        document.querySelectorAll('.model-card').forEach(function(card) {
+            card.addEventListener('click', function() {
+                var modelName = this.dataset.model;
+                var status = modelStatuses[modelName];
+                
+                if (status === 'available') {
+                    // Set the select dropdown value
+                    document.getElementById('model').value = modelName;
+                    // Reinitialize select to update displayed value
+                    M.FormSelect.init(document.getElementById('model'));
+                    // Update selection in collection
+                    updateSelectedModel();
+                } else {
+                    // Show message that model needs to be pulled
+                    M.toast({html: `Model ${modelName} is not available. Status: ${status}`});
+                }
+            });
+        });
+        
+        // Pull model button click handler
+        document.querySelectorAll('.pull-model-btn').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                var modelName = this.dataset.model;
+                pullModel(modelName);
+            });
+        });
+        
+        // Function to pull a model
+        function pullModel(modelName) {
+            // Show modal
+            var modal = M.Modal.getInstance(document.getElementById('pull-model-modal'));
+            document.getElementById('pull-model-message').textContent = `Starting download of ${modelName}. This may take a while.`;
+            modal.open();
+            
+            // Call API to start pulling the model
+            fetch(`/pull_model/${modelName}`, {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Update status
+                    modelStatuses[modelName] = data.status;
+                    document.getElementById('pull-model-message').textContent = 
+                        `Downloading ${modelName}. This will continue in the background. You can close this modal.`;
+                    
+                    // Start polling for status
+                    pollModelStatus(modelName);
+                } else {
+                    document.getElementById('pull-model-message').textContent = 
+                        `Error: ${data.error}`;
+                    
+                    // Add close button
+                    var closeBtn = document.createElement('a');
+                    closeBtn.className = 'modal-close waves-effect waves-green btn-flat';
+                    closeBtn.textContent = 'Close';
+                    document.querySelector('#pull-model-modal .modal-content').appendChild(closeBtn);
+                }
+            })
+            .catch(error => {
+                document.getElementById('pull-model-message').textContent = 
+                    `Network error: ${error.message}`;
+                
+                // Add close button
+                var closeBtn = document.createElement('a');
+                closeBtn.className = 'modal-close waves-effect waves-green btn-flat';
+                closeBtn.textContent = 'Close';
+                document.querySelector('#pull-model-modal .modal-content').appendChild(closeBtn);
+            });
+        }
+        
+        // Function to poll model status
+        function pollModelStatus(modelName) {
+            // Don't poll if status is already completed or failed
+            if (modelStatuses[modelName] === 'completed' || modelStatuses[modelName] === 'failed') {
+                return;
+            }
+            
+            fetch(`/model_status/${modelName}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Update status
+                    modelStatuses[modelName] = data.status;
+                    
+                    // Update UI
+                    document.querySelectorAll(`.model-card[data-model="${modelName}"] .status-badge`).forEach(function(badge) {
+                        badge.className = `status-badge status-${data.status}`;
+                        badge.textContent = data.status;
+                    });
+                    
+                    // If completed, update UI
+                    if (data.status === 'available') {
+                        // Enable the option in the select
+                        document.querySelectorAll(`#model option[value="${modelName}"]`).forEach(function(option) {
+                            option.disabled = false;
+                        });
+                        
+                        // Reinitialize select
+                        M.FormSelect.init(document.getElementById('model'));
+                        
+                        // Update message
+                        document.getElementById('pull-model-message').textContent = 
+                            `Model ${modelName} has been successfully downloaded and is now available.`;
+                        
+                        // Add close button
+                        var closeBtn = document.createElement('a');
+                        closeBtn.className = 'modal-close waves-effect waves-green btn-flat';
+                        closeBtn.textContent = 'Close';
+                        document.querySelector('#pull-model-modal .modal-content').appendChild(closeBtn);
+                    } else if (data.status === 'failed') {
+                        // Update message
+                        document.getElementById('pull-model-message').textContent = 
+                            `Failed to download model ${modelName}.`;
+                        
+                        // Add close button
+                        var closeBtn = document.createElement('a');
+                        closeBtn.className = 'modal-close waves-effect waves-green btn-flat';
+                        closeBtn.textContent = 'Close';
+                        document.querySelector('#pull-model-modal .modal-content').appendChild(closeBtn);
+                    } else {
+                        // Still pulling, poll again in 5 seconds
+                        setTimeout(function() {
+                            pollModelStatus(modelName);
+                        }, 5000);
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error polling model status:', error);
+                // Try again in 10 seconds
+                setTimeout(function() {
+                    pollModelStatus(modelName);
+                }, 10000);
+            });
+        }
+        
+        // Form submission
+        document.getElementById('generate-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // Get form values
+            var prompt = document.getElementById('prompt').value;
+            var model = document.getElementById('model').value;
+            var size = document.getElementById('size').value;
+            
+            // Hide initial message and any error messages
+            document.getElementById('initial-message').style.display = 'none';
+            document.getElementById('error-message').style.display = 'none';
+            document.getElementById('result-container').style.display = 'none';
+            document.getElementById('fallback-container').style.display = 'none';
+            
+            // Show loading spinner
+            document.getElementById('loading-spinner').style.display = 'block';
+            
+            // Create FormData object
+            var formData = new FormData();
+            formData.append('prompt', prompt);
+            formData.append('model', model);
+            formData.append('size', size);
+            
+            // Add a timestamp to prevent caching
+            var timestamp = new Date().getTime();
+            
+            // Send request to server
+            fetch('/generate', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Hide loading spinner
+                document.getElementById('loading-spinner').style.display = 'none';
+                
+                if (data.success) {
+                    // Display the generated image with a timestamp to prevent caching
+                    var imgElement = document.getElementById('generated-image');
+                    imgElement.src = data.image_path + '?t=' + timestamp;
+                    
+                    // Update download button
+                    var downloadButton = document.getElementById('download-button');
+                    downloadButton.href = data.image_path;
+                    
+                    // Force image reload by setting onload handler
+                    imgElement.onload = function() {
+                        console.log('Image loaded successfully');
+                    };
+                    
+                    imgElement.onerror = function() {
+                        console.error('Error loading image');
+                        document.getElementById('error-text').textContent = 'Error loading the generated image.';
+                        document.getElementById('error-message').style.display = 'block';
+                    };
+                    
+                    // Show result container
+                    document.getElementById('result-container').style.display = 'block';
+                } else {
+                    // Show error message
+                    document.getElementById('error-text').textContent = data.error || 'An error occurred while generating the image.';
+                    document.getElementById('error-details').textContent = 'Please make sure Ollama is running and the selected model is available.';
+                    document.getElementById('error-message').style.display = 'block';
+                    
+                    // Check if there's a fallback image
+                    if (data.fallback_image) {
+                        var fallbackImg = document.getElementById('fallback-image');
+                        fallbackImg.src = data.fallback_image + '?t=' + timestamp;
+                        document.getElementById('fallback-container').style.display = 'block';
+                    }
+                }
+            })
+            .catch(error => {
+                // Hide loading spinner
+                document.getElementById('loading-spinner').style.display = 'none';
+                
+                // Show error message
+                document.getElementById('error-text').textContent = 'Network error: ' + error.message;
+                document.getElementById('error-details').textContent = 'There was a problem connecting to the server. Please check your internet connection and try again.';
+                document.getElementById('error-message').style.display = 'block';
+            });
+        });
+        
+        // Start polling for models that are being pulled
+        for (var modelName in modelStatuses) {
+            if (modelStatuses[modelName] === 'pulling') {
+                pollModelStatus(modelName);
+            }
+        }
+    });
+</script>
+{% endblock %}
